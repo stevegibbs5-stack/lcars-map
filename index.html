@@ -2,64 +2,159 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>LCARS Map</title>
+<title>LCARS Air Command</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <style>
-body {
-    margin: 0;
-    background: black;
-    font-family: Arial;
-    color: #ffcc66;
-}
+body { margin:0; background:#000; font-family:Arial; color:#ffcc66; }
 
 #top {
-    height: 60px;
-    background: #ff9900;
-    display: flex;
-    align-items: center;
-    padding-left: 20px;
-    font-weight: bold;
+  height:60px;
+  background:#ff9900;
+  display:flex;
+  align-items:center;
+  padding-left:20px;
+  font-weight:bold;
+  letter-spacing:2px;
+}
+
+#left {
+  position:absolute;
+  top:60px;
+  left:0;
+  bottom:0;
+  width:260px;
+  background:#1a1a1a;
+  padding:15px;
 }
 
 #map {
-    position: absolute;
-    top: 60px;
-    bottom: 0;
-    left: 0;
-    right: 0;
+  position:absolute;
+  top:60px;
+  left:260px;
+  right:0;
+  bottom:0;
 }
+
+.button {
+  background:#aa55ff;
+  padding:10px;
+  margin:10px 0;
+  border-radius:20px;
+  text-align:center;
+  cursor:pointer;
+  color:black;
+}
+
+.slider { width:100%; }
+
+#status { margin-top:15px; }
 </style>
 </head>
 
 <body>
 
-<div id="top">LCARS MAP</div>
+<div id="top">LCARS AIR TRAFFIC</div>
+
+<div id="left">
+  <div class="button" onclick="toggle()">TOGGLE TRAFFIC</div>
+
+  <label>Altitude</label>
+  <input type="range" id="alt" min="0" max="40000" value="40000" class="slider">
+
+  <label>Speed</label>
+  <input type="range" id="spd" min="0" max="600" value="600" class="slider">
+
+  <div id="status">INITIALISING</div>
+</div>
+
 <div id="map"></div>
 
 <script>
-const map = L.map('map').setView([20, 0], 2);
+const API = "/api/air";
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: ''
-}).addTo(map);
+const map = L.map('map').setView([20,0],2);
 
-/* Simple markers (no API needed) */
-const points = [
-    [51.5, -0.1],
-    [40.7, -74.0],
-    [35.7, 139.7],
-    [-33.8, 151.2]
-];
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-points.forEach(p => {
-    L.circleMarker(p, {
-        radius: 5,
-        color: '#00ffff'
-    }).addTo(map);
-});
+let planes = {};
+let enabled = true;
+let sim = false;
+
+function toggle(){
+  enabled = !enabled;
+}
+
+async function load(){
+  if(!enabled) return;
+
+  try{
+    const res = await fetch(API);
+    const data = await res.json();
+
+    if(!data.states) throw "no data";
+
+    sim = false;
+    status("LIVE");
+
+    const alt = document.getElementById("alt").value;
+    const spd = document.getElementById("spd").value;
+
+    data.states.forEach(p=>{
+      const id=p[0], lat=p[6], lon=p[5], speed=p[9], altm=p[7];
+
+      if(!lat||!lon) return;
+      if(altm>alt || speed>spd) return;
+
+      if(!planes[id]){
+        planes[id]={
+          lat, lon,
+          marker:L.circleMarker([lat,lon],{radius:3,color:"#00ffff"}).addTo(map)
+        };
+      } else {
+        planes[id].lat += (lat-planes[id].lat)*0.2;
+        planes[id].lon += (lon-planes[id].lon)*0.2;
+        planes[id].marker.setLatLng([planes[id].lat,planes[id].lon]);
+      }
+    });
+
+  } catch(e){
+    sim = true;
+    status("SIMULATION");
+  }
+}
+
+function simulate(){
+  if(!sim || !enabled) return;
+
+  for(let i=0;i<10;i++){
+    let id="sim"+i;
+
+    if(!planes[id]){
+      planes[id]={
+        lat:Math.random()*140-70,
+        lon:Math.random()*360-180,
+        marker:L.circleMarker([0,0],{radius:3,color:"#ff66cc"}).addTo(map)
+      };
+    }
+
+    planes[id].lat += (Math.random()-0.5)*0.3;
+    planes[id].lon += (Math.random()-0.5)*0.3;
+
+    planes[id].marker.setLatLng([planes[id].lat,planes[id].lon]);
+  }
+}
+
+function status(t){
+  document.getElementById("status").innerText = "STATUS: " + t;
+}
+
+setInterval(()=>{
+  load();
+  simulate();
+},3000);
 </script>
 
 </body>
