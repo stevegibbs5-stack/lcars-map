@@ -2,159 +2,215 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>LCARS Air Command</title>
+<title>LCARS AIR COMMAND</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <style>
-body { margin:0; background:#000; font-family:Arial; color:#ffcc66; }
-
-#top {
-  height:60px;
-  background:#ff9900;
-  display:flex;
-  align-items:center;
-  padding-left:20px;
-  font-weight:bold;
-  letter-spacing:2px;
+body {
+  margin: 0;
+  background: black;
+  font-family: Arial, sans-serif;
+  overflow: hidden;
 }
 
+/* LCARS LEFT PANEL */
 #left {
-  position:absolute;
-  top:60px;
-  left:0;
-  bottom:0;
-  width:260px;
-  background:#1a1a1a;
-  padding:15px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 240px;
+  background: #1a1a1a;
+  padding: 15px;
+  color: #ffcc66;
 }
 
+/* TOP BAR */
+#top {
+  position: absolute;
+  top: 0;
+  left: 240px;
+  right: 0;
+  height: 50px;
+  background: #ff9900;
+  display: flex;
+  align-items: center;
+  padding-left: 20px;
+  font-weight: bold;
+  letter-spacing: 2px;
+}
+
+/* MAP */
 #map {
-  position:absolute;
-  top:60px;
-  left:260px;
-  right:0;
-  bottom:0;
+  position: absolute;
+  top: 50px;
+  left: 240px;
+  right: 0;
+  bottom: 0;
 }
 
+/* BUTTONS */
 .button {
-  background:#aa55ff;
-  padding:10px;
-  margin:10px 0;
-  border-radius:20px;
-  text-align:center;
-  cursor:pointer;
-  color:black;
+  background: #aa55ff;
+  padding: 10px;
+  margin: 10px 0;
+  border-radius: 20px;
+  text-align: center;
+  cursor: pointer;
+  color: black;
+  font-weight: bold;
 }
 
-.slider { width:100%; }
+/* SLIDERS */
+input {
+  width: 100%;
+}
 
-#status { margin-top:15px; }
+/* STATUS */
+#status {
+  margin-top: 15px;
+  font-size: 14px;
+}
+
+/* MARKER */
+.plane {
+  font-size: 14px;
+  color: #00ffff;
+}
 </style>
 </head>
 
 <body>
 
-<div id="top">LCARS AIR TRAFFIC</div>
-
 <div id="left">
-  <div class="button" onclick="toggle()">TOGGLE TRAFFIC</div>
+  <div class="button" onclick="toggle()">TOGGLE</div>
 
   <label>Altitude</label>
-  <input type="range" id="alt" min="0" max="40000" value="40000" class="slider">
+  <input type="range" id="alt" min="0" max="40000" value="40000">
 
   <label>Speed</label>
-  <input type="range" id="spd" min="0" max="600" value="600" class="slider">
+  <input type="range" id="spd" min="0" max="600" value="600">
 
   <div id="status">INITIALISING</div>
 </div>
 
+<div id="top">LCARS AIR COMMAND</div>
+
 <div id="map"></div>
 
 <script>
-const API = "/api/air";
-
-const map = L.map('map').setView([20,0],2);
+const map = L.map('map').setView([20, 0], 2);
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
 let planes = {};
-let enabled = true;
-let sim = false;
+let running = true;
+let simulationMode = false;
 
-function toggle(){
-  enabled = !enabled;
+/* STATUS */
+function status(text) {
+  document.getElementById("status").innerText = "STATUS: " + text;
 }
 
-async function load(){
-  if(!enabled) return;
+/* TOGGLE */
+function toggle() {
+  running = !running;
+  status(running ? "ACTIVE" : "PAUSED");
+}
 
-  try{
-    const res = await fetch(API);
+/* CREATE ICON */
+function createIcon() {
+  return L.divIcon({
+    className: '',
+    html: '<div class="plane">✈</div>',
+    iconSize: [20, 20],
+    iconAnchor: [10, 10]
+  });
+}
+
+/* LOAD DATA */
+async function loadData() {
+  if (!running) return;
+
+  try {
+    const res = await fetch("/api/air");
     const data = await res.json();
 
-    if(!data.states) throw "no data";
+    if (!data.data) throw "no data";
 
-    sim = false;
-    status("LIVE");
+    simulationMode = false;
+    status("LIVE DATA");
 
-    const alt = document.getElementById("alt").value;
-    const spd = document.getElementById("spd").value;
+    const altLimit = document.getElementById("alt").value;
+    const spdLimit = document.getElementById("spd").value;
 
-    data.states.forEach(p=>{
-      const id=p[0], lat=p[6], lon=p[5], speed=p[9], altm=p[7];
+    data.data.forEach(f => {
 
-      if(!lat||!lon) return;
-      if(altm>alt || speed>spd) return;
+      if (!f.live || !f.live.latitude) return;
 
-      if(!planes[id]){
-        planes[id]={
+      const lat = f.live.latitude;
+      const lon = f.live.longitude;
+      const alt = f.live.altitude || 0;
+      const spd = f.live.speed || 0;
+
+      if (alt > altLimit || spd > spdLimit) return;
+
+      const id = f.flight ? f.flight.iata : Math.random();
+
+      if (!planes[id]) {
+        planes[id] = {
           lat, lon,
-          marker:L.circleMarker([lat,lon],{radius:3,color:"#00ffff"}).addTo(map)
+          marker: L.marker([lat, lon], {
+            icon: createIcon()
+          }).addTo(map)
         };
       } else {
-        planes[id].lat += (lat-planes[id].lat)*0.2;
-        planes[id].lon += (lon-planes[id].lon)*0.2;
-        planes[id].marker.setLatLng([planes[id].lat,planes[id].lon]);
+        planes[id].lat += (lat - planes[id].lat) * 0.2;
+        planes[id].lon += (lon - planes[id].lon) * 0.2;
+
+        planes[id].marker.setLatLng([planes[id].lat, planes[id].lon]);
       }
     });
 
-  } catch(e){
-    sim = true;
+  } catch (e) {
+    simulationMode = true;
     status("SIMULATION");
   }
 }
 
-function simulate(){
-  if(!sim || !enabled) return;
+/* SIMULATION */
+function simulate() {
+  if (!simulationMode || !running) return;
 
-  for(let i=0;i<10;i++){
-    let id="sim"+i;
+  for (let i = 0; i < 15; i++) {
 
-    if(!planes[id]){
-      planes[id]={
-        lat:Math.random()*140-70,
-        lon:Math.random()*360-180,
-        marker:L.circleMarker([0,0],{radius:3,color:"#ff66cc"}).addTo(map)
+    if (!planes[i]) {
+      planes[i] = {
+        lat: Math.random() * 140 - 70,
+        lon: Math.random() * 360 - 180,
+        marker: L.marker([0, 0], {
+          icon: createIcon()
+        }).addTo(map)
       };
     }
 
-    planes[id].lat += (Math.random()-0.5)*0.3;
-    planes[id].lon += (Math.random()-0.5)*0.3;
+    planes[i].lat += (Math.random() - 0.5) * 0.3;
+    planes[i].lon += (Math.random() - 0.5) * 0.3;
 
-    planes[id].marker.setLatLng([planes[id].lat,planes[id].lon]);
+    planes[i].marker.setLatLng([planes[i].lat, planes[i].lon]);
   }
 }
 
-function status(t){
-  document.getElementById("status").innerText = "STATUS: " + t;
-}
-
-setInterval(()=>{
-  load();
+/* LOOP */
+setInterval(() => {
+  loadData();
   simulate();
-},3000);
+}, 3000);
+
+status("STARTING");
 </script>
 
 </body>
